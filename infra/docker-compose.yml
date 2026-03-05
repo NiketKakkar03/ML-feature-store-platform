@@ -46,5 +46,19 @@ services:
     ports:
       - "6379:6379"
 
+  event_producer:
+    build:
+      context: ../services/event_producer
+      dockerfile: Dockerfile
+    container_name: event_producer
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      - kafka
+    restart: on-failure
+
+
 volumes:
   postgres_data:
