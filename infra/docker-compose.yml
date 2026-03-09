@@ -85,5 +85,21 @@ services:
       - kafka
     restart: on-failure
 
+  batch_features:
+    build:
+      context: ../services/feature_jobs/batch
+      dockerfile: Dockerfile
+    container_name: batch_features
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: featurestore
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    depends_on:
+      - postgres
+    restart: "no"
+
+
 volumes:
   postgres_data:
