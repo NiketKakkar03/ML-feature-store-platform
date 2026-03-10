@@ -1,0 +1,56 @@
+{
+  "row_count": 50,
+  "train_rows": 40,
+  "test_rows": 10,
+  "positive_rate": 0.34,
+  "accuracy": 0.6,
+  "precision": 0.3333333333333333,
+  "recall": 0.3333333333333333,
+  "f1": 0.3333333333333333,
+  "feature_columns": [
+    "user_features__views_7d",
+    "user_features__clicks_7d",
+    "user_features__ctr_7d",
+    "user_features__views_1h",
+    "item_features__views_7d",
+    "item_features__clicks_7d",
+    "item_features__ctr_7d"
+  ],
+  "classification_report": {
+    "0": {
+      "precision": 0.7142857142857143,
+      "recall": 0.7142857142857143,
+      "f1-score": 0.7142857142857143,
+      "support": 7.0
+    },
+    "1": {
+      "precision": 0.3333333333333333,
+      "recall": 0.3333333333333333,
+      "f1-score": 0.3333333333333333,
+      "support": 3.0
+    },
+    "accuracy": 0.6,
+    "macro avg": {
+      "precision": 0.5238095238095238,
+      "recall": 0.5238095238095238,
+      "f1-score": 0.5238095238095238,
+      "support": 10.0
+    },
+    "weighted avg": {
+      "precision": 0.6,
+      "recall": 0.6,
+      "f1-score": 0.6,
+      "support": 10.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      5,
+      2
+    ],
+    [
+      2,
+      1
+    ]
+  ]
+}

@@ -58,7 +58,7 @@ services:
     image: postgres:15
     container_name: postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: featurestore
       POSTGRES_USER: postgres
@@ -100,6 +100,40 @@ services:
       - postgres
     restart: "no"
 
+  streaming_features:
+    build:
+      context: ../services/feature_jobs/streaming
+      dockerfile: Dockerfile
+    container_name: streaming_features
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: on-failure
+
+  model_service:
+    build:
+      context: ../services/model_service
+      dockerfile: Dockerfile
+    container_name: model_service
+    ports:
+      - "8001:8001"
+    volumes:
+      - ../feature_store:/app/feature_store
+      - ../services/model_training/models:/app/services/model_training/models
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_started
+    restart: on-failure
 
 volumes:
   postgres_data:
