@@ -1,0 +1,56 @@
+{
+  "row_count": 50,
+  "train_rows": 42,
+  "test_rows": 8,
+  "positive_rate": 0.34,
+  "accuracy": 0.375,
+  "precision": 0.0,
+  "recall": 0.0,
+  "f1": 0.0,
+  "feature_columns": [
+    "user_features__views_7d",
+    "user_features__clicks_7d",
+    "user_features__ctr_7d",
+    "user_features__views_1h",
+    "item_features__views_7d",
+    "item_features__clicks_7d",
+    "item_features__ctr_7d"
+  ],
+  "classification_report": {
+    "0": {
+      "precision": 0.5,
+      "recall": 0.6,
+      "f1-score": 0.5454545454545454,
+      "support": 5.0
+    },
+    "1": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1-score": 0.0,
+      "support": 3.0
+    },
+    "accuracy": 0.375,
+    "macro avg": {
+      "precision": 0.25,
+      "recall": 0.3,
+      "f1-score": 0.2727272727272727,
+      "support": 8.0
+    },
+    "weighted avg": {
+      "precision": 0.3125,
+      "recall": 0.375,
+      "f1-score": 0.3409090909090909,
+      "support": 8.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      3,
+      2
+    ],
+    [
+      3,
+      0
+    ]
+  ]
+}

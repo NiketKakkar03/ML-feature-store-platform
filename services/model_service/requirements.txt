@@ -8,4 +8,6 @@ numpy
 redis
 psycopg2-binary
 scikit-learn==1.7.2
+psycopg[binary]
+prometheus-fastapi-instrumentator
 

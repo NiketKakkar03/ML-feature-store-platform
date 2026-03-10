@@ -18,8 +18,8 @@ from sklearn.metrics import (
 
 DATA_PATH = "training_dataset.csv"
 MODEL_DIR = "models"
-MODEL_PATH = os.path.join(MODEL_DIR, "model.joblib")
-METRICS_PATH = os.path.join(MODEL_DIR, "metrics.json")
+MODEL_PATH = os.path.join(MODEL_DIR, "model_2.joblib")
+METRICS_PATH = os.path.join(MODEL_DIR, "metrics_2.json")
 
 FEATURE_COLUMNS = [
     "user_features__views_7d",
@@ -45,14 +45,14 @@ def main():
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
-        test_size=0.2,
-        random_state=42,
+        test_size=0.15,
+        random_state=47,
         stratify=y,
     )
 
     pipeline = Pipeline([
         ("scaler", StandardScaler()),
-        ("model", LogisticRegression(max_iter=1000, random_state=42)),
+        ("model", LogisticRegression(max_iter=1500, random_state=47)),
     ])
 
     pipeline.fit(X_train, y_train)

@@ -1,17 +1,40 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from feast import FeatureStore
+from prometheus_fastapi_instrumentator import Instrumentator
 import joblib
 import numpy as np
-from pathlib import Path
+import os
+import time
+import logging
+import hashlib
+
+from db import ensure_inference_events_table, insert_inference_event
+from middleware import RequestLoggingMiddleware
+
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("model_service")
+
 
 app = FastAPI(title="Model Service")
+app.add_middleware(RequestLoggingMiddleware)
+instrumentator = Instrumentator().instrument(app)
 
-FEATURE_REPO = "/app/feature_store"
-MODEL_PATH = "/app/services/model_training/models/model.joblib"
 
-store = FeatureStore(repo_path=str(FEATURE_REPO))
-model = joblib.load(MODEL_PATH)
+FEATURE_REPO = os.getenv("FEATURE_REPO", "/app/feature_store")
+ROLLOUT_PERCENT = int(os.getenv("ROLLOUT_PERCENT", "20"))
+
+
+store = FeatureStore(repo_path=FEATURE_REPO)
+MODELS = {
+    "v1": joblib.load("/app/services/model_training/models/model.joblib"),
+    "v2": joblib.load("/app/services/model_training/models/model_2.joblib"),
+}
+
 
 FEATURE_REFS = [
     "user_features:views_7d",
@@ -23,6 +46,7 @@ FEATURE_REFS = [
     "item_features:ctr_7d",
 ]
 
+
 MODEL_COLUMNS = [
     "user_features__views_7d",
     "user_features__clicks_7d",
@@ -33,43 +57,147 @@ MODEL_COLUMNS = [
     "item_features__ctr_7d",
 ]
 
+
 class PredictionRequest(BaseModel):
     user_id: int
     item_id: int
 
+
+def choose_model_version(user_id: int) -> str:
+    bucket = int(hashlib.md5(str(user_id).encode()).hexdigest(), 16) % 100
+    return "v2" if bucket < ROLLOUT_PERCENT else "v1"
+
+
+@app.on_event("startup")
+def startup_event():
+    ensure_inference_events_table()
+    instrumentator.expose(app)
+    logger.info(
+        {
+            "event": "startup_complete",
+            "available_models": list(MODELS.keys()),
+            "rollout_percent_v2": ROLLOUT_PERCENT,
+        }
+    )
+
+
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy",
+        "available_model_versions": list(MODELS.keys()),
+        "rollout_percent_v2": ROLLOUT_PERCENT,
+    }
+
+
+def safe_insert_event(payload: dict) -> None:
+    try:
+        insert_inference_event(payload)
+    except Exception:
+        logger.exception({"event": "inference_event_insert_failed", "payload": payload})
+
 
 @app.post("/predict")
-def predict(req: PredictionRequest):
-    online = store.get_online_features(
-        features=FEATURE_REFS,
-        entity_rows=[{"user": req.user_id, "item": req.item_id}], 
-        full_feature_names=True,
-    ).to_dict()
+def predict(req: PredictionRequest, request: Request):
+    request_id = getattr(request.state, "request_id", None)
+    start = time.perf_counter()
+    model_version = choose_model_version(req.user_id)
+    model = MODELS[model_version]
 
-    values = {
-        "user_features__views_7d": online.get("user_features__views_7d", [None])[0],
-        "user_features__clicks_7d": online.get("user_features__clicks_7d", [None])[0],
-        "user_features__ctr_7d": online.get("user_features__ctr_7d", [None])[0],
-        "user_features__views_1h": online.get("user_features__views_1h", [None])[0],
-        "item_features__views_7d": online.get("item_features__views_7d", [None])[0],
-        "item_features__clicks_7d": online.get("item_features__clicks_7d", [None])[0],
-        "item_features__ctr_7d": online.get("item_features__ctr_7d", [None])[0],
-    }
+    try:
+        online = store.get_online_features(
+            features=FEATURE_REFS,
+            entity_rows=[{"user_id": req.user_id, "item_id": req.item_id}],
+            full_feature_names=True,
+        ).to_dict()
 
-    if any(values[c] is None for c in MODEL_COLUMNS):
-        raise HTTPException(status_code=404, detail="Missing online features for entity")
+        values = {
+            "user_features__views_7d": online.get("user_features__views_7d", [None])[0],
+            "user_features__clicks_7d": online.get("user_features__clicks_7d", [None])[0],
+            "user_features__ctr_7d": online.get("user_features__ctr_7d", [None])[0],
+            "user_features__views_1h": online.get("user_features__views_1h", [None])[0],
+            "item_features__views_7d": online.get("item_features__views_7d", [None])[0],
+            "item_features__clicks_7d": online.get("item_features__clicks_7d", [None])[0],
+            "item_features__ctr_7d": online.get("item_features__ctr_7d", [None])[0],
+        }
 
-    X = np.array([[values[c] for c in MODEL_COLUMNS]], dtype=float)
-    score = float(model.predict_proba(X)[0][1])
-    pred = int(model.predict(X)[0])
+        if any(values[c] is None for c in MODEL_COLUMNS):
+            latency_ms = round((time.perf_counter() - start) * 1000, 2)
 
-    return {
-        "user_id": req.user_id,
-        "item_id": req.item_id,
-        "prediction": pred,
-        "click_probability": score,
-        "features_used": values,
-    }
+            safe_insert_event(
+                {
+                    "request_id": request_id,
+                    "user_id": req.user_id,
+                    "item_id": req.item_id,
+                    "prediction": None,
+                    "click_probability": None,
+                    "model_version": model_version,
+                    "latency_ms": latency_ms,
+                    "status": "missing_features",
+                    "error_message": "Missing online features for entity",
+                }
+            )
+
+            raise HTTPException(status_code=404, detail="Missing online features for entity")
+
+        X = np.array([[values[c] for c in MODEL_COLUMNS]], dtype=float)
+        score = float(model.predict_proba(X)[0][1])
+        pred = int(model.predict(X)[0])
+        latency_ms = round((time.perf_counter() - start) * 1000, 2)
+
+        safe_insert_event(
+            {
+                "request_id": request_id,
+                "user_id": req.user_id,
+                "item_id": req.item_id,
+                "prediction": pred,
+                "click_probability": score,
+                "model_version": model_version,
+                "latency_ms": latency_ms,
+                "status": "success",
+                "error_message": None,
+            }
+        )
+
+        return {
+            "request_id": request_id,
+            "user_id": req.user_id,
+            "item_id": req.item_id,
+            "prediction": pred,
+            "click_probability": score,
+            "model_version": model_version,
+            "features_used": values,
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        latency_ms = round((time.perf_counter() - start) * 1000, 2)
+
+        safe_insert_event(
+            {
+                "request_id": request_id,
+                "user_id": req.user_id,
+                "item_id": req.item_id,
+                "prediction": None,
+                "click_probability": None,
+                "model_version": model_version,
+                "latency_ms": latency_ms,
+                "status": "error",
+                "error_message": str(e),
+            }
+        )
+
+        logger.exception(
+            {
+                "event": "prediction_failed",
+                "request_id": request_id,
+                "user_id": req.user_id,
+                "item_id": req.item_id,
+                "model_version": model_version,
+                "error": str(e),
+            }
+        )
+
+        raise HTTPException(status_code=500, detail="Internal server error")
