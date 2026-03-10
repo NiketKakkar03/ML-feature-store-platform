@@ -70,26 +70,37 @@ jobs:
 
       - name: Start model_service container
         run: |
-          docker run -d --name model-service-smoke -p 8001:8001 model-service-ci
+          docker run -d --name model-service-smoke -p 8001:8001 -e SMOKE_TEST_MODE=true model-service-ci
+
+
+      - name: Show container status
+        run: |
+          docker ps -a
+          docker inspect model-service-smoke || true
 
       - name: Wait for service readiness
         run: |
           python - <<'PY'
           import time
           import requests
+          import subprocess
 
           url = "http://localhost:8001/health"
+
           for i in range(30):
               try:
                   r = requests.get(url, timeout=3)
                   if r.status_code == 200:
                       print("Service is ready")
-                      break
+                      raise SystemExit(0)
               except Exception:
                   pass
+
+              print(f"Attempt {i+1}/30 failed, checking container logs...")
+              subprocess.run(["docker", "logs", "model-service-smoke"], check=False)
               time.sleep(2)
-          else:
-              raise SystemExit("Service did not become ready in time")
+
+          raise SystemExit("Service did not become ready in time")
           PY
 
       - name: Run smoke tests
@@ -99,9 +110,10 @@ jobs:
       - name: Show container logs on failure
         if: failure()
         run: |
-          docker logs model-service-smoke
+          docker logs model-service-smoke || true
 
       - name: Stop container
         if: always()
         run: |
-          docker rm -f model-service-smoke
+          docker rm -f model-service-smoke || true
+

@@ -7,8 +7,8 @@ import numpy as np
 import os
 import time
 import logging
-from routing import choose_model_version
 
+from routing import choose_model_version
 from db import ensure_inference_events_table, insert_inference_event
 from middleware import RequestLoggingMiddleware
 
@@ -27,13 +27,18 @@ instrumentator = Instrumentator().instrument(app)
 
 FEATURE_REPO = os.getenv("FEATURE_REPO", "/app/feature_store")
 ROLLOUT_PERCENT = int(os.getenv("ROLLOUT_PERCENT", "20"))
+SMOKE_TEST_MODE = os.getenv("SMOKE_TEST_MODE", "false").lower() == "true"
 
 
-store = FeatureStore(repo_path=FEATURE_REPO)
-MODELS = {
-    "v1": joblib.load("/app/services/model_training/models/model.joblib"),
-    "v2": joblib.load("/app/services/model_training/models/model_2.joblib"),
-}
+if not SMOKE_TEST_MODE:
+    store = FeatureStore(repo_path=FEATURE_REPO)
+    MODELS = {
+        "v1": joblib.load("/app/services/model_training/models/model.joblib"),
+        "v2": joblib.load("/app/services/model_training/models/model_2.joblib"),
+    }
+else:
+    store = None
+    MODELS = {}
 
 
 FEATURE_REFS = [
@@ -65,11 +70,15 @@ class PredictionRequest(BaseModel):
 
 @app.on_event("startup")
 def startup_event():
-    ensure_inference_events_table()
     instrumentator.expose(app)
+
+    if not SMOKE_TEST_MODE:
+        ensure_inference_events_table()
+
     logger.info(
         {
             "event": "startup_complete",
+            "smoke_test_mode": SMOKE_TEST_MODE,
             "available_models": list(MODELS.keys()),
             "rollout_percent_v2": ROLLOUT_PERCENT,
         }
@@ -80,12 +89,16 @@ def startup_event():
 def health():
     return {
         "status": "healthy",
+        "smoke_test_mode": SMOKE_TEST_MODE,
         "available_model_versions": list(MODELS.keys()),
         "rollout_percent_v2": ROLLOUT_PERCENT,
     }
 
 
 def safe_insert_event(payload: dict) -> None:
+    if SMOKE_TEST_MODE:
+        return
+
     try:
         insert_inference_event(payload)
     except Exception:
@@ -94,6 +107,9 @@ def safe_insert_event(payload: dict) -> None:
 
 @app.post("/predict")
 def predict(req: PredictionRequest, request: Request):
+    if SMOKE_TEST_MODE:
+        raise HTTPException(status_code=503, detail="Predict disabled in smoke test mode")
+
     request_id = getattr(request.state, "request_id", None)
     start = time.perf_counter()
     model_version = choose_model_version(req.user_id)
