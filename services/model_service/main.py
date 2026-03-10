@@ -7,7 +7,7 @@ import numpy as np
 import os
 import time
 import logging
-import hashlib
+from routing import choose_model_version
 
 from db import ensure_inference_events_table, insert_inference_event
 from middleware import RequestLoggingMiddleware
@@ -61,11 +61,6 @@ MODEL_COLUMNS = [
 class PredictionRequest(BaseModel):
     user_id: int
     item_id: int
-
-
-def choose_model_version(user_id: int) -> str:
-    bucket = int(hashlib.md5(str(user_id).encode()).hexdigest(), 16) % 100
-    return "v2" if bucket < ROLLOUT_PERCENT else "v1"
 
 
 @app.on_event("startup")
