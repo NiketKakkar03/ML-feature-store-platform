@@ -1,0 +1,19 @@
+project: ml_feature_store_platform
+registry: data/registry.db
+provider: local
+
+offline_store:
+  type: postgres
+  host: postgres
+  port: 5432
+  database: featurestore
+  db_schema: public
+  user: postgres
+  password: postgres
+
+online_store:
+  type: redis
+  connection_string: "redis:6379"
+
+
+entity_key_serialization_version: 2
